@@ -2,8 +2,8 @@ const Nick = require("nickjs")
 const nick = new Nick()
 
 var subjects = {},
-    sections = {},
-		courses = {}
+		courses = {},
+		sessions = {}
 
 ;(async () => {
 	const tab = await nick.newTab()
@@ -31,14 +31,23 @@ var subjects = {},
 		for (var j=0; j<subjectTitles.length; j++){
 			var subject = subjectTitles[j]
 			console.log("Found a subject named "+subject[1])
-			var keyName = subject[1].split(/ - /);
-			subjects[keyName[0]]=keyName[1];
+			var sub = subject[1].split(/ - /);
+			subjects[sub[0]]={title:sub[1]};
 			// expand the subject
 			await tab.click("#"+subject[0])
 			await tab.untilVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',10000)
       // get courses if there are any
 			const coursesAvailable = await tab.isVisible('table.PSLEVEL2GRIDWBO')
-			if (coursesAvailable) console.log("we have courses!!!!!")
+			if (coursesAvailable) {
+				const courseLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PSLEVEL2GRID tr[id]')).map(x=>[x.querySelector('a[name*=CRSE_NB]').id.replace(/\$/g,'\\24 '), x.querySelector('a[name*=CRSE_NB]').textContent, x.querySelector('a[name*=CRSE_TITLE]').textContent]) )},{})
+				for (var k=0; k<courseLinks.length; k++){
+					var course = courseLinks[k]
+					console.log("Found a course named "+course[2])
+					courses[course[1]]={title:course[2]}
+					// Go to the course page to get extended meta and get sessions
+					
+				}
+			}
 			// close the subject
 			await tab.click("#"+subject[0])
 			await tab.whileVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',10000)
@@ -49,6 +58,8 @@ var subjects = {},
 	console.log("Job done!")
 	console.log("Found these subjects:")
 	console.log(JSON.stringify(subjects))
+	console.log("Found these courses")
+	console.log(JSON.stringify(courses))
 	nick.exit()
 })
 .catch((err) => {
