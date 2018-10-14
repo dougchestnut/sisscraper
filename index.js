@@ -45,7 +45,23 @@ var subjects = {},
 					console.log("Found a course named "+course[2])
 					courses[course[1]]={title:course[2]}
 					// Go to the course page to get extended meta and get sessions
-					
+					await tab.click("#"+course[0])
+					await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
+					const meta = await tab.evaluate((arg,done)=>{
+						var course = {}
+						course.career = document.querySelector('span[id*=SSR_CRSE_OFF_VW_ACAD_CAREER]').textContent
+						course.units = document.querySelector('span[id*=DERIVED_CRSECAT_UNITS_RANGE]').textContent
+						course.gradingBasis = document.querySelector('span[id*=SSR_CRSE_OFF_VW_GRADING_BASIS]').textContent
+						// ToDo: Figure out how to scrape Course Components
+						course.academicGroup = document.querySelector('span[id*=ACAD_GROUP_TBL_DESCR]').textContent
+						course.academicOrganization = document.querySelector('span[id*=ACAD_ORG_TBL_DESCR]').textContent
+						course.requirementDesignation = (reqDes = document.querySelector('span[id*=DERIVED_CRSECAT_DESCRFORMAL]'))? reqDes.textContent:null
+						done(null, course)
+					},null)
+					courses[course[1]] = Object.assign(courses[course[1]], meta);
+					console.log(courses[course[1]])
+					await tab.click("#DERIVED_SAA_CRS_RETURN_PB")
+					await tab.whileVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
 				}
 			}
 			// close the subject
