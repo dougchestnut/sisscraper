@@ -49,13 +49,16 @@ var subjects = {},
 					await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
 					const meta = await tab.evaluate((arg,done)=>{
 						var course = {}
-						course.career = document.querySelector('span[id*=SSR_CRSE_OFF_VW_ACAD_CAREER]').textContent
-						course.units = document.querySelector('span[id*=DERIVED_CRSECAT_UNITS_RANGE]').textContent
-						course.gradingBasis = document.querySelector('span[id*=SSR_CRSE_OFF_VW_GRADING_BASIS]').textContent
-						// ToDo: Figure out how to scrape Course Components
-						course.academicGroup = document.querySelector('span[id*=ACAD_GROUP_TBL_DESCR]').textContent
-						course.academicOrganization = document.querySelector('span[id*=ACAD_ORG_TBL_DESCR]').textContent
-						course.requirementDesignation = (reqDes = document.querySelector('span[id*=DERIVED_CRSECAT_DESCRFORMAL]'))? reqDes.textContent:null
+						var get = (q)=>(n = document.querySelector(q))? n.textContent:null
+						course.career = get('span[id*=SSR_CRSE_OFF_VW_ACAD_CAREER]')
+						course.units = get('span[id*=DERIVED_CRSECAT_UNITS_RANGE]')
+						course.gradingBasis = get('span[id*=SSR_CRSE_OFF_VW_GRADING_BASIS]')
+						course.components = [].slice.call(document.querySelectorAll('table[id*=ACE_SSR_DUMMY_RECVW] tr')).filter(n=>(n.querySelector('[id*=win0divDERIVED_CRSECAT_DESCR]'))).map(n=>(r =n.querySelectorAll('[id*=win0divDERIVED_CRSECAT_DESCR] span'))?{title:r[0].textContent,status:r[1].textContent}:null)
+						course.academicGroup = get('span[id*=ACAD_GROUP_TBL_DESCR]')
+						course.academicOrganization = get('span[id*=ACAD_ORG_TBL_DESCR]')
+						course.requirementDesignation = get('span[id*=DERIVED_CRSECAT_DESCRFORMAL]')
+						course.academicOrganization = get('span[id*=DERIVED_CRSECAT_SSR_CRSE_ATTR_LONG]')
+						course.description = get('span[id*=SSR_CRSE_OFF_VW_DESCRLONG]')
 						done(null, course)
 					},null)
 					courses[course[1]] = Object.assign(courses[course[1]], meta);
