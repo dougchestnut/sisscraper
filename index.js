@@ -1,9 +1,11 @@
 const Nick = require("nickjs")
 const nick = new Nick()
+const fs = require('fs');
 
 var subjects = {},
 		courses = {},
-		sessions = {}
+		sections = [],
+		terms = {}
 
 ;(async () => {
 	const tab = await nick.newTab()
@@ -25,7 +27,8 @@ var subjects = {},
 	  var subjectDivLink = subjectDivisions[i][0]
 		console.log("Looking at subjects that start with "+subjectDivisions[i][1])
 		await tab.click('#'+subjectDivLink)
-		await tab.wait(2000)  // Wait for subjects to load
+		await tab.wait(1000)
+		await tab.whileVisible('#processing',50000)
 		// expand each subject
 		const subjectTitles = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PABACKGROUNDINVISIBLEWBO[id] div a[class=PSHYPERLINK]')).map(x=>[x.id.replace(/\$/g,'\\24 '),x.textContent]) )},{})
 		for (var j=0; j<subjectTitles.length; j++){
@@ -44,7 +47,7 @@ var subjects = {},
 					var course = courseLinks[k]
 					console.log("Found a course named "+course[2])
 					courses[course[1]]={title:course[2]}
-					// Go to the course page to get extended meta and get sessions
+					// Go to the course page to get extended meta and get sections
 					await tab.click("#"+course[0])
 					await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
 					const meta = await tab.evaluate((arg,done)=>{
@@ -61,8 +64,65 @@ var subjects = {},
 						course.description = get('span[id*=SSR_CRSE_OFF_VW_DESCRLONG]')
 						done(null, course)
 					},null)
+					// Go ahead and load the course sections
+					const sectionsAvailable = await tab.isVisible('#DERIVED_SAA_CRS_SSR_PB_GO')
+					if (sectionsAvailable) {
+						await tab.click('#DERIVED_SAA_CRS_SSR_PB_GO')
+						await tab.untilVisible('select',40000)
+						// go ahead and scrape all terms for this course
+						const termsLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('select option')).map(x=>[x.value,x.textContent]) )}, {})
+						for (var l=0; l<termsLinks.length; l++) {
+							var term = termsLinks[l]
+							terms[term[0]]=term[1]
+							// select term
+							await tab.evaluate((arg,done)=>{
+								document.querySelector('select').value = arg[0]
+							  done(null,null)
+							}, term)
+							// load sections for term (push "show sections" button)
+							await tab.click('[id*=DERIVED_SAA_CRS_SSR_PB_GO][value="Show Sections"]')
+							await tab.wait(1000)
+							await tab.whileVisible('#processing',50000)
+							// get the links for each section page
+							const sectionLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('td.PSLEVEL2GRIDODDROW a[id*=CLASS_SECTION]')).map(x=>[x.id.replace(/\$/g,'\\24 '), x.textContent]) )},{})
+							for (var m=0; m<sectionLinks.length; m++) {
+								console.log("Found section "+sectionLinks[m][1])
+								await tab.click('#'+sectionLinks[m][0])
+								await tab.untilVisible('#DERIVED_CLSRCH_DESCR200',10000)
+								// scrape the section meta
+								const sectionMeta = await tab.evaluate((arg,done)=>{
+									var section = {}
+									var get = (q)=>(n = document.querySelector(q))? n.textContent.replace("\n",''):null
+									section.term = get('#DERIVED_CLSRCH_SSS_PAGE_KEYDESCR').replace(/.*? \| (.*?) \| .*/,"$1")
+									section.status = get('#SSR_CLS_DTL_WRK_SSR_DESCRSHORT')
+									section.classNumber = get('#SSR_CLS_DTL_WRK_CLASS_NBR')
+									section.session = get('span[id*=PSXLATITEM_XLATLONGNAME]')
+									section.units = get('#SSR_CLS_DTL_WRK_UNITS_RANGE')
+									section.instructionMode = get('#INSTRUCT_MODE_DESCR')
+									section.dates = get('#SSR_CLS_DTL_WRK_SSR_DATE_LONG')
+									section.grading = get('#GRADE_BASIS_TBL_DESCRFORMAL')
+									section.location = get('#CAMPUS_LOC_VW_DESCR')
+									section.campus = get('#CAMPUS_TBL_DESCR')
+									section.capacity = get('#SSR_CLS_DTL_WRK_ENRL_CAP')
+									section.enrollment = get('#SSR_CLS_DTL_WRK_ENRL_TOT')
+									section.availableSeats = get('#SSR_CLS_DTL_WRK_AVAILABLE_SEATS')
+									section.waitListCapacity = get('#SSR_CLS_DTL_WRK_WAIT_CAP')
+									section.waitListTotal = get('#SSR_CLS_DTL_WRK_WAIT_TOT')
+									section.daysTimes = get('[id*=MTG_SCHED]')
+									section.room = get('[id*=MTG_LOC]')
+									section.instructor = get('[id*=MTG_INSTR]')
+									done(null, section)
+								},null)
+								sectionMeta.id = sectionLinks[m][1].replace(/ \(.*/,'')
+								console.log(sectionMeta)
+								sections.push(sectionMeta)
+								await tab.click('#CLASS_SRCH_WRK2_SSR_PB_CLOSE')
+								await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
+							}
+						}
+					}
 					courses[course[1]] = Object.assign(courses[course[1]], meta);
-					console.log(courses[course[1]])
+					// return to course listing page
 					await tab.click("#DERIVED_SAA_CRS_RETURN_PB")
 					await tab.whileVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
 				}
@@ -75,11 +135,32 @@ var subjects = {},
 })()
 .then(() => {
 	console.log("Job done!")
-	console.log("Found these subjects:")
-	console.log(JSON.stringify(subjects))
-	console.log("Found these courses")
-	console.log(JSON.stringify(courses))
-	nick.exit()
+	fs.writeFile("subjects.json", JSON.stringify(subjects), function(err) {
+    if(err) {
+        return console.log(err);
+    }
+    console.log("The subjects file was saved!");
+		fs.writeFile("courses.json", JSON.stringify(courses), function(err) {
+	    if(err) {
+	        return console.log(err);
+	    }
+	    console.log("The courses file was saved!");
+			fs.writeFile("terms.json", JSON.stringify(terms), function(err) {
+		    if(err) {
+		        return console.log(err);
+		    }
+		    console.log("The terms file was saved!");
+				fs.writeFile("sections.json", JSON.stringify(sections), function(err) {
+			    if(err) {
+			        return console.log(err);
+			    }
+			    console.log("The sections file was saved!");
+					nick.exit()
+				});
+			});
+		});
+	});
+
 })
 .catch((err) => {
 	console.log(`Something went wrong: ${err}`)
