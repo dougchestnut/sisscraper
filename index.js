@@ -1,11 +1,14 @@
 const Nick = require("nickjs")
 const nick = new Nick()
 const fs = require('fs');
+const admin = require('firebase-admin');
 
-var subjects = {},
-		courses = {},
-		sections = [],
-		terms = {}
+var serviceAccount = require('/usr/local/serviceAccountKey.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+var db = admin.firestore();
 
 ;(async () => {
 	const tab = await nick.newTab()
@@ -24,18 +27,21 @@ var subjects = {},
 	await tab.open(framesrc)
 	const subjectDivisions = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('#ACE_\\24 ICField52 a')).map(x=>[x.id,x.textContent]) )}, {})
   for (var i=0; i<subjectDivisions.length; i++) {
+if (subjectDivisions[i][1]=="G") {
 	  var subjectDivLink = subjectDivisions[i][0]
 		console.log("Looking at subjects that start with "+subjectDivisions[i][1])
 		await tab.click('#'+subjectDivLink)
 		await tab.wait(1000)
-		await tab.whileVisible('#processing',50000)
+		await tab.whileVisible('#processing',60000)
 		// expand each subject
 		const subjectTitles = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PABACKGROUNDINVISIBLEWBO[id] div a[class=PSHYPERLINK]')).map(x=>[x.id.replace(/\$/g,'\\24 '),x.textContent]) )},{})
 		for (var j=0; j<subjectTitles.length; j++){
 			var subject = subjectTitles[j]
 			console.log("Found a subject named "+subject[1])
 			var sub = subject[1].split(/ - /);
-			subjects[sub[0]]={title:sub[1]};
+
+			db.collection('subjects').doc(sub[0]).update({title:sub[1]}, { create: true })
+
 			// expand the subject
 			await tab.click("#"+subject[0])
 			await tab.untilVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',10000)
@@ -46,10 +52,13 @@ var subjects = {},
 				for (var k=0; k<courseLinks.length; k++){
 					var course = courseLinks[k]
 					console.log("Found a course named "+course[2])
-					courses[course[1]]={title:course[2]}
+
+					var dbCourse = db.collection('courses').doc(course[1])
+					dbCourse.update({title:course[2]}, { create: true })
+
 					// Go to the course page to get extended meta and get sections
 					await tab.click("#"+course[0])
-					await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
+					await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
 					const meta = await tab.evaluate((arg,done)=>{
 						var course = {}
 						var get = (q)=>(n = document.querySelector(q))? n.textContent:null
@@ -68,12 +77,15 @@ var subjects = {},
 					const sectionsAvailable = await tab.isVisible('#DERIVED_SAA_CRS_SSR_PB_GO')
 					if (sectionsAvailable) {
 						await tab.click('#DERIVED_SAA_CRS_SSR_PB_GO')
-						await tab.untilVisible('select',40000)
+						await tab.untilVisible('select',60000)
 						// go ahead and scrape all terms for this course
 						const termsLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('select option')).map(x=>[x.value,x.textContent]) )}, {})
 						for (var l=0; l<termsLinks.length; l++) {
 							var term = termsLinks[l]
-							terms[term[0]]=term[1]
+
+							db.collection('terms').doc(term[0]).update({title:term[1]}, { create: true })
+
+if (term[1].indexOf('2019')>=0) {
 							// select term
 							await tab.evaluate((arg,done)=>{
 								document.querySelector('select').value = arg[0]
@@ -82,13 +94,13 @@ var subjects = {},
 							// load sections for term (push "show sections" button)
 							await tab.click('[id*=DERIVED_SAA_CRS_SSR_PB_GO][value="Show Sections"]')
 							await tab.wait(1000)
-							await tab.whileVisible('#processing',50000)
+							await tab.whileVisible('#processing',60000)
 							// get the links for each section page
 							const sectionLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('td.PSLEVEL2GRIDODDROW a[id*=CLASS_SECTION]')).map(x=>[x.id.replace(/\$/g,'\\24 '), x.textContent]) )},{})
 							for (var m=0; m<sectionLinks.length; m++) {
 								console.log("Found section "+sectionLinks[m][1])
 								await tab.click('#'+sectionLinks[m][0])
-								await tab.untilVisible('#DERIVED_CLSRCH_DESCR200',10000)
+								await tab.untilVisible('#DERIVED_CLSRCH_DESCR200',60000)
 								// scrape the section meta
 								const sectionMeta = await tab.evaluate((arg,done)=>{
 									var section = {}
@@ -113,54 +125,36 @@ var subjects = {},
 									section.instructor = get('[id*=MTG_INSTR]')
 									done(null, section)
 								},null)
+								sectionMeta.course = course[1];
 								sectionMeta.id = sectionLinks[m][1].replace(/ \(.*/,'')
-								console.log(sectionMeta)
-								sections.push(sectionMeta)
+
+								db.collection('sections').doc(sectionMeta.id+'_'+sectionMeta.term).update(sectionMeta, { create: true })
+//								sections[sectionMeta.id+'_'+sectionMeta.term] = sectionMeta
+
 								await tab.click('#CLASS_SRCH_WRK2_SSR_PB_CLOSE')
-								await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
+								await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
 							}
+}
 						}
 					}
-					courses[course[1]] = Object.assign(courses[course[1]], meta);
+
+					dbCourse.update(meta, { create: true })
+
 					// return to course listing page
 					await tab.click("#DERIVED_SAA_CRS_RETURN_PB")
-					await tab.whileVisible('#DERIVED_SAA_CRS_RETURN_PB',10000)
+					await tab.whileVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
 				}
 			}
 			// close the subject
 			await tab.click("#"+subject[0])
-			await tab.whileVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',10000)
+			await tab.whileVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',60000)
 		}
+}
 	}
 })()
 .then(() => {
 	console.log("Job done!")
-	fs.writeFile("subjects.json", JSON.stringify(subjects), function(err) {
-    if(err) {
-        return console.log(err);
-    }
-    console.log("The subjects file was saved!");
-		fs.writeFile("courses.json", JSON.stringify(courses), function(err) {
-	    if(err) {
-	        return console.log(err);
-	    }
-	    console.log("The courses file was saved!");
-			fs.writeFile("terms.json", JSON.stringify(terms), function(err) {
-		    if(err) {
-		        return console.log(err);
-		    }
-		    console.log("The terms file was saved!");
-				fs.writeFile("sections.json", JSON.stringify(sections), function(err) {
-			    if(err) {
-			        return console.log(err);
-			    }
-			    console.log("The sections file was saved!");
-					nick.exit()
-				});
-			});
-		});
-	});
-
+	nick.exit()
 })
 .catch((err) => {
 	console.log(`Something went wrong: ${err}`)
