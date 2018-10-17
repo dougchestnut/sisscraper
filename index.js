@@ -9,6 +9,41 @@ admin.initializeApp({
 });
 
 var db = admin.firestore();
+var areEqualShallow = function(a, b) {
+    for(var key in a) {
+        if(key != 'components' && a[key] !== b[key]) {
+            return false;
+        }
+    }
+    return true;
+}
+var sessionCache = {}
+var getCreateUpdate = function(collection, docPath, data){
+	if (!sessionCache[collection]) sessionCache[collection] = []
+	var thedoc = db.collection(collection).doc(docPath)
+if (!sessionCache[collection][docPath]) {
+	thedoc.get().then(doc => {
+		if (!doc.exists) {
+			console.log("Doc path "+docPath)
+			console.log('************************set data')
+			thedoc.set(data)
+			sessionCache[collection][docPath] = true
+		} else {
+			console.log('update if new?')
+			if ( !areEqualShallow(doc.data(),data) ) {
+				thedoc.update(data)
+				sessionCache[collection][docPath] = true
+				console.log("Doc path "+docPath)
+				console.log('++++++++++++++++++++++++update data')
+				console.log(doc.data())
+				console.log(data)
+			}
+		}
+	})
+} else {
+	console.log("Already touched this!!!")
+}
+}
 
 ;(async () => {
 	const tab = await nick.newTab()
@@ -26,8 +61,9 @@ var db = admin.firestore();
 	await tab.wait(1000)
 	await tab.open(framesrc)
 	const subjectDivisions = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('#ACE_\\24 ICField52 a')).map(x=>[x.id,x.textContent]) )}, {})
+	subjectDivisions.reverse()
   for (var i=0; i<subjectDivisions.length; i++) {
-if (subjectDivisions[i][1]=="G") {
+if (true) { //subjectDivisions[i][1]!="A" && !subjectDivisions[i][1].match(/[TUVWXYZ]/)) {
 	  var subjectDivLink = subjectDivisions[i][0]
 		console.log("Looking at subjects that start with "+subjectDivisions[i][1])
 		await tab.click('#'+subjectDivLink)
@@ -39,8 +75,10 @@ if (subjectDivisions[i][1]=="G") {
 			var subject = subjectTitles[j]
 			console.log("Found a subject named "+subject[1])
 			var sub = subject[1].split(/ - /);
+			var subjectID = sub[0].toLowerCase()
 
-			db.collection('subjects').doc(sub[0]).update({title:sub[1]}, { create: true })
+//			db.collection('subjects').doc(sub[0]).update({title:sub[1]}, { create: true })
+			getCreateUpdate('subjects', subjectID, {title:sub[1]})
 
 			// expand the subject
 			await tab.click("#"+subject[0])
@@ -51,10 +89,12 @@ if (subjectDivisions[i][1]=="G") {
 				const courseLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PSLEVEL2GRID tr[id]')).map(x=>[x.querySelector('a[name*=CRSE_NB]').id.replace(/\$/g,'\\24 '), x.querySelector('a[name*=CRSE_NB]').textContent, x.querySelector('a[name*=CRSE_TITLE]').textContent]) )},{})
 				for (var k=0; k<courseLinks.length; k++){
 					var course = courseLinks[k]
+					course[1] = course[1].replace(/[\(\)]/,'')
+					var courseID = [subjectID,course[1].toLowerCase()].join('-')
 					console.log("Found a course named "+course[2])
 
-					var dbCourse = db.collection('courses').doc(course[1])
-					dbCourse.update({title:course[2]}, { create: true })
+					//var dbCourse = db.collection('courses').doc(course[1])
+					//dbCourse.update({title:course[2]}, { create: true })
 
 					// Go to the course page to get extended meta and get sections
 					await tab.click("#"+course[0])
@@ -82,8 +122,10 @@ if (subjectDivisions[i][1]=="G") {
 						const termsLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('select option')).map(x=>[x.value,x.textContent]) )}, {})
 						for (var l=0; l<termsLinks.length; l++) {
 							var term = termsLinks[l]
+							var termID = term[0].toLowerCase()
 
-							db.collection('terms').doc(term[0]).update({title:term[1]}, { create: true })
+							//db.collection('terms').doc(term[0]).update({title:term[1]}, { create: true })
+							getCreateUpdate('terms', termID, {title:term[1]})
 
 if (term[1].indexOf('2019')>=0) {
 							// select term
@@ -105,7 +147,7 @@ if (term[1].indexOf('2019')>=0) {
 								const sectionMeta = await tab.evaluate((arg,done)=>{
 									var section = {}
 									var get = (q)=>(n = document.querySelector(q))? n.textContent.replace("\n",''):null
-									section.term = get('#DERIVED_CLSRCH_SSS_PAGE_KEYDESCR').replace(/.*? \| (.*?) \| .*/,"$1")
+									//section.term = get('#DERIVED_CLSRCH_SSS_PAGE_KEYDESCR').replace(/.*? \| (.*?) \| .*/,"$1")
 									section.status = get('#SSR_CLS_DTL_WRK_SSR_DESCRSHORT')
 									section.classNumber = get('#SSR_CLS_DTL_WRK_CLASS_NBR')
 									section.session = get('span[id*=PSXLATITEM_XLATLONGNAME]')
@@ -125,10 +167,14 @@ if (term[1].indexOf('2019')>=0) {
 									section.instructor = get('[id*=MTG_INSTR]')
 									done(null, section)
 								},null)
-								sectionMeta.course = course[1];
+				        sectionMeta.subject = subjectID
+								sectionMeta.term = termID
+								sectionMeta.course = courseID
 								sectionMeta.id = sectionLinks[m][1].replace(/ \(.*/,'')
 
-								db.collection('sections').doc(sectionMeta.id+'_'+sectionMeta.term).update(sectionMeta, { create: true })
+								var sectionID = [termID, courseID, sectionMeta.id.toLowerCase()].join('-')
+								getCreateUpdate('sections', sectionID, sectionMeta)
+								//db.collection('sections').doc(sectionMeta.id+'_'+sectionMeta.term).update(sectionMeta, { create: true })
 //								sections[sectionMeta.id+'_'+sectionMeta.term] = sectionMeta
 
 								await tab.click('#CLASS_SRCH_WRK2_SSR_PB_CLOSE')
@@ -138,7 +184,10 @@ if (term[1].indexOf('2019')>=0) {
 						}
 					}
 
-					dbCourse.update(meta, { create: true })
+					//dbCourse.update(meta, { create: true })
+					meta.title = course[2]
+					meta.subject = subjectID
+					getCreateUpdate('courses', courseID, meta)
 
 					// return to course listing page
 					await tab.click("#DERIVED_SAA_CRS_RETURN_PB")
