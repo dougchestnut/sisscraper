@@ -74,9 +74,9 @@ var startScrape = async function(startSubjectDiv, startSubjectTitle, startCourse
 		// expand each subject
 		const subjectTitles = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PABACKGROUNDINVISIBLEWBO[id] div a[class=PSHYPERLINK]')).map(x=>[x.id.replace(/\$/g,'\\24 '),x.textContent]) )},{})
 		for (var j=0; j<subjectTitles.length; j++){
+			var subject = subjectTitles[j]
 startSubjectTitle = (subject[1]===startSubjectTitle)? false: startSubjectTitle;
 if (!startSubjectTitle) {
-			var subject = subjectTitles[j]
 			console.log("Found a subject named "+subject[1])
 			var sub = subject[1].split(/ - /);
 			var subjectID = sub[0].toLowerCase()
@@ -93,6 +93,8 @@ if (!startSubjectTitle) {
 				const courseLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PSLEVEL2GRID tr[id]')).map(x=>[x.querySelector('a[name*=CRSE_NB]').id.replace(/\$/g,'\\24 '), x.querySelector('a[name*=CRSE_NB]').textContent, x.querySelector('a[name*=CRSE_TITLE]').textContent]) )},{})
 				for (var k=0; k<courseLinks.length; k++){
 					var course = courseLinks[k]
+startCourse = (course[2]===startCourse)? false: startCourse;
+if (!startCourse) {
 					course[1] = course[1].replace(/[\(\)]/,'')
 					var courseID = [subjectID,course[1].toLowerCase()].join('-')
 					console.log("Found a course named "+course[2])
@@ -130,8 +132,9 @@ if (!startSubjectTitle) {
 
 							//db.collection('terms').doc(term[0]).update({title:term[1]}, { create: true })
 							getCreateUpdate('terms', termID, {title:term[1]})
-
-	if (term[1].indexOf('2018')>=0) {
+startTerm = (termID===startTerm)? false: startTerm;
+if (!startTerm) {
+	//if (term[1].indexOf('2018')>=0) {
 							// select term
 							await tab.evaluate((arg,done)=>{
 								document.querySelector('select').value = arg[0]
@@ -144,6 +147,8 @@ if (!startSubjectTitle) {
 							// get the links for each section page
 							const sectionLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('td.PSLEVEL2GRIDODDROW a[id*=CLASS_SECTION]')).map(x=>[x.id.replace(/\$/g,'\\24 '), x.textContent]) )},{})
 							for (var m=0; m<sectionLinks.length; m++) {
+startSection = (sectionLinks[m][1]===startSection)? false: startSection;
+if (!startSection) {
 								console.log("Found section "+sectionLinks[m][1])
 								await tab.click('#'+sectionLinks[m][0])
 								await tab.untilVisible('#DERIVED_CLSRCH_DESCR200',60000)
@@ -183,6 +188,7 @@ if (!startSubjectTitle) {
 
 								await tab.click('#CLASS_SRCH_WRK2_SSR_PB_CLOSE')
 								await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
+}
 							}
 	}
 						}
@@ -196,6 +202,7 @@ if (!startSubjectTitle) {
 					// return to course listing page
 					await tab.click("#DERIVED_SAA_CRS_RETURN_PB")
 					await tab.whileVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
+}
 				}
 			}
 			// close the subject
