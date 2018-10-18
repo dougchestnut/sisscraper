@@ -45,6 +45,8 @@ if (!sessionCache[collection][docPath]) {
 }
 }
 
+var theSubjectDiv, theSubject, theCourse, theTerm, theSection
+
 var startScrape = async function(startSubjectDiv, startSubjectTitle, startCourse, startTerm, startSection){
 
 	const tab = await nick.newTab()
@@ -64,8 +66,9 @@ var startScrape = async function(startSubjectDiv, startSubjectTitle, startCourse
 	const subjectDivisions = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('#ACE_\\24 ICField52 a')).map(x=>[x.id,x.textContent]) )}, {})
 	//subjectDivisions.reverse()
 	for (var i=0; i<subjectDivisions.length; i++) {
-	startSubjectDiv = (subjectDivisions[i][1]===startSubjectDiv)? false: startSubjectDiv;
-	if (!startSubjectDiv) {
+theSubjectDiv = subjectDivisions[i][1]
+startSubjectDiv = (theSubjectDiv===startSubjectDiv)? false: startSubjectDiv;
+if (!startSubjectDiv) {
 		var subjectDivLink = subjectDivisions[i][0]
 		console.log("Looking at subjects that start with "+subjectDivisions[i][1])
 		await tab.click('#'+subjectDivLink)
@@ -75,7 +78,8 @@ var startScrape = async function(startSubjectDiv, startSubjectTitle, startCourse
 		const subjectTitles = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PABACKGROUNDINVISIBLEWBO[id] div a[class=PSHYPERLINK]')).map(x=>[x.id.replace(/\$/g,'\\24 '),x.textContent]) )},{})
 		for (var j=0; j<subjectTitles.length; j++){
 			var subject = subjectTitles[j]
-startSubjectTitle = (subject[1]===startSubjectTitle)? false: startSubjectTitle;
+theSubject = subject[1]
+startSubjectTitle = (theSubject===startSubjectTitle)? false: startSubjectTitle;
 if (!startSubjectTitle) {
 			console.log("Found a subject named "+subject[1])
 			var sub = subject[1].split(/ - /);
@@ -93,7 +97,8 @@ if (!startSubjectTitle) {
 				const courseLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PSLEVEL2GRID tr[id]')).map(x=>[x.querySelector('a[name*=CRSE_NB]').id.replace(/\$/g,'\\24 '), x.querySelector('a[name*=CRSE_NB]').textContent, x.querySelector('a[name*=CRSE_TITLE]').textContent]) )},{})
 				for (var k=0; k<courseLinks.length; k++){
 					var course = courseLinks[k]
-startCourse = (course[2]===startCourse)? false: startCourse;
+theCourse = course[2]
+startCourse = (theCourse===startCourse)? false: startCourse;
 if (!startCourse) {
 					course[1] = course[1].replace(/[\(\)]/,'')
 					var courseID = [subjectID,course[1].toLowerCase()].join('-')
@@ -132,7 +137,8 @@ if (!startCourse) {
 
 							//db.collection('terms').doc(term[0]).update({title:term[1]}, { create: true })
 							getCreateUpdate('terms', termID, {title:term[1]})
-startTerm = (termID===startTerm)? false: startTerm;
+theTerm = termID;
+startTerm = (theTerm===startTerm)? false: startTerm;
 if (!startTerm) {
 	//if (term[1].indexOf('2018')>=0) {
 							// select term
@@ -147,7 +153,8 @@ if (!startTerm) {
 							// get the links for each section page
 							const sectionLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('td.PSLEVEL2GRIDODDROW a[id*=CLASS_SECTION]')).map(x=>[x.id.replace(/\$/g,'\\24 '), x.textContent]) )},{})
 							for (var m=0; m<sectionLinks.length; m++) {
-startSection = (sectionLinks[m][1]===startSection)? false: startSection;
+theSection = sectionLinks[m][1];
+startSection = (theSection===startSection)? false: startSection;
 if (!startSection) {
 								console.log("Found section "+sectionLinks[m][1])
 								await tab.click('#'+sectionLinks[m][0])
@@ -215,12 +222,17 @@ if (!startSection) {
 
 }
 
-;(startScrape)()
+function start(){
+;(startScrape)(theSubjectDiv, theSubject, theCourse, theTerm, theSection)
 .then(() => {
 	console.log("Job done!")
 	nick.exit()
 })
 .catch((err) => {
 	console.log(`Something went wrong: ${err}`)
-	nick.exit(1)
+	start();  // try again where we left off
+//	nick.exit(1)
 })
+}
+
+start();
