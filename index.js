@@ -45,12 +45,13 @@ if (!sessionCache[collection][docPath]) {
 }
 }
 
-;(async () => {
+var startScrape = async function(startSubjectDiv, startSubjectTitle, startCourse, startTerm, startSection){
+
 	const tab = await nick.newTab()
 	// sis home
 	console.log("go to home")
 	await tab.open("https://sisuva.admin.virginia.edu/psp/ihprd/EMPLOYEE/EMPL/h/?tab=PAPP_GUEST")
-  await tab.untilVisible("#crefli_UV_HC_SSS_BROWSE_CATLG_GBL3")
+	await tab.untilVisible("#crefli_UV_HC_SSS_BROWSE_CATLG_GBL3")
 	// click the browse catalog link
 	console.log("browse catalog")
 	await tab.click("#crefli_UV_HC_SSS_BROWSE_CATLG_GBL3 > a")
@@ -61,10 +62,11 @@ if (!sessionCache[collection][docPath]) {
 	await tab.wait(1000)
 	await tab.open(framesrc)
 	const subjectDivisions = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('#ACE_\\24 ICField52 a')).map(x=>[x.id,x.textContent]) )}, {})
-	subjectDivisions.reverse()
-  for (var i=0; i<subjectDivisions.length; i++) {
-if (true) { //subjectDivisions[i][1]!="A" && !subjectDivisions[i][1].match(/[TUVWXYZ]/)) {
-	  var subjectDivLink = subjectDivisions[i][0]
+	//subjectDivisions.reverse()
+	for (var i=0; i<subjectDivisions.length; i++) {
+	startSubjectDiv = (subjectDivisions[i][1]===startSubjectDiv)? false: startSubjectDiv;
+	if (!startSubjectDiv) {
+		var subjectDivLink = subjectDivisions[i][0]
 		console.log("Looking at subjects that start with "+subjectDivisions[i][1])
 		await tab.click('#'+subjectDivLink)
 		await tab.wait(1000)
@@ -72,18 +74,20 @@ if (true) { //subjectDivisions[i][1]!="A" && !subjectDivisions[i][1].match(/[TUV
 		// expand each subject
 		const subjectTitles = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PABACKGROUNDINVISIBLEWBO[id] div a[class=PSHYPERLINK]')).map(x=>[x.id.replace(/\$/g,'\\24 '),x.textContent]) )},{})
 		for (var j=0; j<subjectTitles.length; j++){
+startSubjectTitle = (subject[1]===startSubjectTitle)? false: startSubjectTitle;
+if (!startSubjectTitle) {
 			var subject = subjectTitles[j]
 			console.log("Found a subject named "+subject[1])
 			var sub = subject[1].split(/ - /);
 			var subjectID = sub[0].toLowerCase()
 
-//			db.collection('subjects').doc(sub[0]).update({title:sub[1]}, { create: true })
+	//			db.collection('subjects').doc(sub[0]).update({title:sub[1]}, { create: true })
 			getCreateUpdate('subjects', subjectID, {title:sub[1]})
 
 			// expand the subject
 			await tab.click("#"+subject[0])
 			await tab.untilVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',10000)
-      // get courses if there are any
+			// get courses if there are any
 			const coursesAvailable = await tab.isVisible('table.PSLEVEL2GRIDWBO')
 			if (coursesAvailable) {
 				const courseLinks = await tab.evaluate((arg,done)=>{done(null, [].slice.call(document.querySelectorAll('table.PSLEVEL2GRID tr[id]')).map(x=>[x.querySelector('a[name*=CRSE_NB]').id.replace(/\$/g,'\\24 '), x.querySelector('a[name*=CRSE_NB]').textContent, x.querySelector('a[name*=CRSE_TITLE]').textContent]) )},{})
@@ -127,11 +131,11 @@ if (true) { //subjectDivisions[i][1]!="A" && !subjectDivisions[i][1].match(/[TUV
 							//db.collection('terms').doc(term[0]).update({title:term[1]}, { create: true })
 							getCreateUpdate('terms', termID, {title:term[1]})
 
-if (term[1].indexOf('2019')>=0) {
+	if (term[1].indexOf('2018')>=0) {
 							// select term
 							await tab.evaluate((arg,done)=>{
 								document.querySelector('select').value = arg[0]
-							  done(null,null)
+								done(null,null)
 							}, term)
 							// load sections for term (push "show sections" button)
 							await tab.click('[id*=DERIVED_SAA_CRS_SSR_PB_GO][value="Show Sections"]')
@@ -167,7 +171,7 @@ if (term[1].indexOf('2019')>=0) {
 									section.instructor = get('[id*=MTG_INSTR]')
 									done(null, section)
 								},null)
-				        sectionMeta.subject = subjectID
+								sectionMeta.subject = subjectID
 								sectionMeta.term = termID
 								sectionMeta.course = courseID
 								sectionMeta.id = sectionLinks[m][1].replace(/ \(.*/,'')
@@ -175,12 +179,12 @@ if (term[1].indexOf('2019')>=0) {
 								var sectionID = [termID, courseID, sectionMeta.id.toLowerCase()].join('-')
 								getCreateUpdate('sections', sectionID, sectionMeta)
 								//db.collection('sections').doc(sectionMeta.id+'_'+sectionMeta.term).update(sectionMeta, { create: true })
-//								sections[sectionMeta.id+'_'+sectionMeta.term] = sectionMeta
+	//								sections[sectionMeta.id+'_'+sectionMeta.term] = sectionMeta
 
 								await tab.click('#CLASS_SRCH_WRK2_SSR_PB_CLOSE')
 								await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
 							}
-}
+	}
 						}
 					}
 
@@ -197,10 +201,14 @@ if (term[1].indexOf('2019')>=0) {
 			// close the subject
 			await tab.click("#"+subject[0])
 			await tab.whileVisible('table.PSLEVEL2GRIDWBO, table.PSGROUPBOXWBO .PSTEXT',60000)
-		}
 }
+		}
 	}
-})()
+	}
+
+}
+
+;(startScrape)()
 .then(() => {
 	console.log("Job done!")
 	nick.exit()
