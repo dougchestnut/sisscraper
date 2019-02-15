@@ -18,20 +18,20 @@ var areEqualShallow = function(a, b) {
     return true;
 }
 var sessionCache = {}
-var getCreateUpdate = function(collection, docPath, data){
+var getCreateUpdate = async function(collection, docPath, data){
 	if (!sessionCache[collection]) sessionCache[collection] = []
 	var thedoc = db.collection(collection).doc(docPath)
-if (!sessionCache[collection][docPath]) {
-	thedoc.get().then(doc => {
+	if (!sessionCache[collection][docPath]) {
+		var doc = await thedoc.get()
 		if (!doc.exists) {
 			console.log("Doc path "+docPath)
 			console.log('************************set data')
-			thedoc.set(data)
+			await thedoc.set(data)
 			sessionCache[collection][docPath] = true
 		} else {
 			console.log('update if new?')
 			if ( !areEqualShallow(doc.data(),data) ) {
-				thedoc.update(data)
+				await thedoc.update(data)
 				sessionCache[collection][docPath] = true
 				console.log("Doc path "+docPath)
 				console.log('++++++++++++++++++++++++update data')
@@ -39,13 +39,13 @@ if (!sessionCache[collection][docPath]) {
 				console.log(data)
 			}
 		}
-	})
-} else {
-	console.log("Already touched this!!!")
-}
+	} else {
+		console.log("Already touched this!!!")
+	}
 }
 
-var theSubjectDiv, theSubject, theCourse, theTerm, theSection
+var theSubjectDiv, theSubject, theCourse, theTerm, theSection,
+    skip = false, count = 0
 
 var startScrape = async function(startSubjectDiv, startSubjectTitle, startCourse, startTerm, startSection){
 
@@ -155,7 +155,7 @@ if (!startTerm) {
 							for (var m=0; m<sectionLinks.length; m++) {
 theSection = sectionLinks[m][1];
 startSection = (theSection===startSection)? false: startSection;
-if (!startSection) {
+if (!startSection && !skip) {
 								console.log("Found section "+sectionLinks[m][1])
 								await tab.click('#'+sectionLinks[m][0])
 								await tab.untilVisible('#DERIVED_CLSRCH_DESCR200',60000)
@@ -195,6 +195,8 @@ if (!startSection) {
 
 								await tab.click('#CLASS_SRCH_WRK2_SSR_PB_CLOSE')
 								await tab.untilVisible('#DERIVED_SAA_CRS_RETURN_PB',60000)
+} else if (!startSection && skip) {
+	skip = false
 }
 							}
 	}
@@ -230,6 +232,10 @@ function start(){
 })
 .catch((err) => {
 	console.log(`Something went wrong: ${err}`)
+	if (++count>3) {
+		skip = true
+		count = 0
+	}
 	start();  // try again where we left off
 //	nick.exit(1)
 })
