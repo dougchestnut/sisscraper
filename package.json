@@ -1,15 +1,23 @@
 {
-  "name": "api",
+  "name": "sisscraper",
   "version": "1.0.0",
-  "description": "",
+  "description": "library to help scrape SIS mobile",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dougchestnut/sisscraper.git"
+  },
   "author": "",
   "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dougchestnut/sisscraper/issues"
+  },
+  "homepage": "https://github.com/dougchestnut/sisscraper#readme",
   "dependencies": {
-    "firebase-admin": "^6.0.0",
-    "nickjs": "^0.3.6"
+    "cheerio": "^1.0.0-rc.2",
+    "node-fetch": "^2.3.0"
   }
 }
