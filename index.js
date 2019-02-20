@@ -4,11 +4,14 @@ const camelCase = require('lodash.camelcase');
 
 var cachedCareers = null;
 
-function getCourseDetails($){
+function getCourseDetails($,career,subjectIndex,subject,id){
   var course = {
-    id: $('div.button-wrapper > a').first().attr('href').replace(/.*\/(.*)\/.*/,"$1"),
+    id: id,
     title: $('div.strong.section-body').first().text(),
-    description: $('div.section-content > div.section-body:nth-child(2)').first().text()
+    description: $('div.section-content > div.section-body:nth-child(2)').first().text(),
+    career: career,
+    subjectIndex: subjectIndex,
+    subject: subject,
   }
   $('body > section > section > div.section-content.clearfix')
       .each((i,elem)=>{
@@ -18,11 +21,11 @@ function getCourseDetails($){
 }
 
 module.exports = {
-  getCareers: ()=>{
+  getCareers: function(){
     if (cachedCareers)
       return Promise.resolve(cachedCareers);
     else {
-      console.log('* careers fetch')
+      console.log('* fetch careers')
       return fetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalogCareers", {timeout:0})
         .then( res => res.text() )
         .then( body => {
@@ -41,9 +44,9 @@ module.exports = {
     }
   },
 
-  getSubjectIndex: careerId=>{
+  getSubjectIndex: function(careerId){
     if (careerId) {
-      console.log('** subject index fetch '+careerId)
+      console.log('** fetch subject index '+careerId)
       return fetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0})
         .then( res => res.text() )
         .then( body => {
@@ -67,9 +70,9 @@ module.exports = {
     }
   },
 
-  getSubjects: (career, subjectIndex)=>{
+  getSubjects: function(career, subjectIndex){
       if (subjectIndex && career) {
-        console.log('*** subjects '+career+' '+subjectIndex)
+        console.log('*** fetch subjects '+career+' '+subjectIndex)
         return fetch("https://msisuva.admin.virginia.edu/app/catalog/listSubjectsByLetter/UVA01/"+subjectIndex+"/"+career, {timeout:0})
           .then( res => res.text() )
           .then( body => {
@@ -79,7 +82,8 @@ module.exports = {
                 var sub = {
                   link: $(elem).attr('href'),
                   display: $(elem).find('div > div').text(),
-                  career: career
+                  career: career,
+                  subjectIndex: subjectIndex
                 };
                 [sub.id, sub.title] = sub.display.split(' - ');
                 return sub;
@@ -93,31 +97,51 @@ module.exports = {
       }
   },
 
-  getCourses: (career, subjectIndex, subject)=>{
+  getCourses: function(career, subjectIndex, subject){
     if (career && subjectIndex && subject) {
-      console.log('**** courses '+career+' '+subjectIndex+' '+subject)
+      console.log('**** fetch courses '+career+' '+subjectIndex+' '+subject)
       return fetch("https://msisuva.admin.virginia.edu/app/catalog/listCoursesBySubject/UVA01/"+subjectIndex+"/"+subject+"/"+career, {timeout:0})
+        .then( res => res.text()
+          .then( body => {
+            const $ = cheerio.load(body);
+            const pageTitle = $('.page-title').text();
+            return (pageTitle == "Course Details")?
+              [getCourseDetails($,career,subjectIndex,subject,res.url.replace(/.*\//,"") )]:
+              $('section.main > section > div > a')
+                .map( (i, elem)=>{
+                  return {
+                    career: career,
+                    subjectIndex: subjectIndex,
+                    subject: subject,
+                    id: $(elem).attr('href').replace(/.+\/(.+)\/.+\/.*/,"$1"),
+                    title: $(elem).find('div.strong.section-body').last().text(),
+                    link: $(elem).attr('href')
+                  };
+                } ).get();
+            } )
+        );
+    } else {
+      return this.getSubjects(career,subjectIndex).then( subjects=>{
+        return Promise.all( subjects.map(subject=>{ return this.getCourses(subject.career,subject.subjectIndex,subject.id) }) )
+          .then( courses=>{ return [].concat.apply([], courses) } );
+      } );
+    }
+  },
+
+  getCourse: function(courseId, career, subjectIndex, subject){
+    if (courseId) {
+      console.log('**** fetch course '+courseId+' '+career+" "+subjectIndex+' '+subject)
+      return fetch("https://msisuva.admin.virginia.edu/app/catalog/showCourse/UVA01/"+courseId, {timeout:0})
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
-          const pageTitle = $('.page-title').text();
-          return (pageTitle)?
-            Promise.resolve( [getCourseDetails($)] ):
-            null
-          // if one item we get the item page
-//          return $('body > section > section > div[id] > a')
-//            .map( (i, elem)=>{
-//              var sub = {
-//                link: $(elem).attr('href'),
-//                display: $(elem).find('div > div').text(),
-//                career: career
-//              };
-//              [sub.id, sub.title] = sub.display.split(' - ');
-//              return sub;
-//            } ).get();
+          return [getCourseDetails($,career,subjectIndex,subject,courseId)];
         } );
     } else {
-
+      return this.getCourses(career,subjectIndex,subject).then( courses=>{
+        return Promise.all( courses.map(course=>{ return this.getCourse(course.id,course.career,course.subjectIndex,course.subject) }) )
+          .then( course=>{ return [].concat.apply([], course) } );
+      } );
     }
   }
 
