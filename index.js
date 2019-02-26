@@ -1,8 +1,16 @@
 const fetch = require("node-fetch");
 const cheerio = require('cheerio');
 const camelCase = require('lodash.camelcase');
+const Bottleneck = require("bottleneck");
 
-var cachedCareers = null;
+// Setup a Bottleneck for limiting fetches to SIS Mobile (be kind)
+const limiter = new Bottleneck({
+  maxConcurrent: 3,
+  minTime: 333
+});
+const limitedFetch = limiter.wrap(fetch);
+
+var cached = {};
 
 function getCourseDetails($,career,subjectIndex,subject,id){
   var course = {
@@ -16,21 +24,43 @@ function getCourseDetails($,career,subjectIndex,subject,id){
   $('body > section > section > div.section-content.clearfix')
       .each((i,elem)=>{
         course[camelCase( $(elem).find('div.pull-left > div.strong').first().text() )] = $(elem).find('div.pull-right > div').first().text();
+      });
+  // get terms for course
+  return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/courseTerms/UVA01/"+id+"/1", {timeout:0})
+    .then( res => res.text()
+      .then( body => {
+        const $$ = cheerio.load(body);
+        const pageTitle = $$('.page-title').text();
+        if (pageTitle == "Course Sections") {
+          course.terms = [{id:res.url.replace(/.*\/(.*)/,"$1")}];
+        } else {
+          var terms = $$("section.main > section > a");
+          if (terms.length > 0) {
+            course.terms = [];
+            terms.each((i,elem)=>{
+              course.terms.push({
+                id: $$(elem).attr('href').replace(/^.*\//,""),
+                title: $$(elem).find('div.section-body').first().text()
+              });
+            });
+          }
+        }
+        return [course];
       })
-  return course;
+    );
 }
 
 module.exports = {
   getCareers: function(){
-    if (cachedCareers)
-      return Promise.resolve(cachedCareers);
+    if (cached)
+      return Promise.resolve(cached);
     else {
       console.log('* fetch careers')
-      return fetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalogCareers", {timeout:0})
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalogCareers", {timeout:0})
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
-          cachedCareers = $('body > section > section > a')
+          cached = $('body > section > section > a')
             .map( (i, elem)=>{
               var cars = {
                 link: $(elem).attr('href'),
@@ -39,7 +69,7 @@ module.exports = {
               cars.id = cars.link.replace(/.*\//,'');
               return cars;
             } ).get();
-          return cachedCareers;
+          return cached;
         } );
     }
   },
@@ -47,7 +77,7 @@ module.exports = {
   getSubjectIndex: function(careerId){
     if (careerId) {
       console.log('** fetch subject index '+careerId)
-      return fetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0})
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0})
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
@@ -73,7 +103,7 @@ module.exports = {
   getSubjects: function(career, subjectIndex){
       if (subjectIndex && career) {
         console.log('*** fetch subjects '+career+' '+subjectIndex)
-        return fetch("https://msisuva.admin.virginia.edu/app/catalog/listSubjectsByLetter/UVA01/"+subjectIndex+"/"+career, {timeout:0})
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listSubjectsByLetter/UVA01/"+subjectIndex+"/"+career, {timeout:0})
           .then( res => res.text() )
           .then( body => {
             const $ = cheerio.load(body);
@@ -100,13 +130,13 @@ module.exports = {
   getCourses: function(career, subjectIndex, subject){
     if (career && subjectIndex && subject) {
       console.log('**** fetch courses '+career+' '+subjectIndex+' '+subject)
-      return fetch("https://msisuva.admin.virginia.edu/app/catalog/listCoursesBySubject/UVA01/"+subjectIndex+"/"+subject+"/"+career, {timeout:0})
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCoursesBySubject/UVA01/"+subjectIndex+"/"+subject+"/"+career, {timeout:0})
         .then( res => res.text()
           .then( body => {
             const $ = cheerio.load(body);
             const pageTitle = $('.page-title').text();
             return (pageTitle == "Course Details")?
-              [getCourseDetails($,career,subjectIndex,subject,res.url.replace(/.*\//,"") )]:
+              getCourseDetails($,career,subjectIndex,subject,res.url.replace(/.*\//,"") ):
               $('section.main > section > div > a')
                 .map( (i, elem)=>{
                   return {
@@ -131,17 +161,48 @@ module.exports = {
   getCourse: function(courseId, career, subjectIndex, subject){
     if (courseId) {
       console.log('**** fetch course '+courseId+' '+career+" "+subjectIndex+' '+subject)
-      return fetch("https://msisuva.admin.virginia.edu/app/catalog/showCourse/UVA01/"+courseId, {timeout:0})
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/showCourse/UVA01/"+courseId, {timeout:0})
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
-          return [getCourseDetails($,career,subjectIndex,subject,courseId)];
-        } );
+          return getCourseDetails($,career,subjectIndex,subject,courseId);
+        } )
     } else {
       return this.getCourses(career,subjectIndex,subject).then( courses=>{
         return Promise.all( courses.map(course=>{ return this.getCourse(course.id,course.career,course.subjectIndex,course.subject) }) )
           .then( course=>{ return [].concat.apply([], course) } );
       } );
+    }
+  },
+
+  getSections: function(termId, courseId, career, subjectIndex, subject){
+    if (termId) {
+      console.log('**** fetch sections for term:'+termId+' and course:'+courseId);
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/coursesections/UVA01/"+courseId+"/1/"+termId, {timeout:0})
+        .then( res => res.text() )
+        .then( body => {
+          const $ = cheerio.load(body);
+//          const pageTitle = $('.page-title').text();
+//          return (pageTitle == "Course Details")?
+//            getCourseDetails($,career,subjectIndex,subject,res.url.replace(/.*\//,"") ):
+//            $('section.main > section > div > a')
+//              .map( (i, elem)=>{
+//                return {
+//                  career: career,
+//                  subjectIndex: subjectIndex,
+//                  subject: subject,
+//                  id: $(elem).attr('href').replace(/.+\/(.+)\/.+\/.*/,"$1"),
+//                  title: $(elem).find('div.strong.section-body').last().text(),
+//                  link: $(elem).attr('href')
+//                };
+//              } ).get();
+        } )
+    } else {
+      return Promise.resolve([]);
+//      return this.getCourses(career,subjectIndex,subject).then( courses=>{
+//        return Promise.all( courses.map(course=>{ return this.getCourse(course.id,course.career,course.subjectIndex,course.subject) }) )
+//          .then( course=>{ return [].concat.apply([], course) } );
+//      } );
     }
   }
 

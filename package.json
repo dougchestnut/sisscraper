@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/dougchestnut/sisscraper#readme",
   "dependencies": {
+    "bottleneck": "^2.16.2",
     "cheerio": "^1.0.0-rc.2",
     "lodash.camelcase": "^4.3.0",
     "node-fetch": "^2.3.0"
