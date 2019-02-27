@@ -5,12 +5,34 @@ const Bottleneck = require("bottleneck");
 
 // Setup a Bottleneck for limiting fetches to SIS Mobile (be kind)
 const limiter = new Bottleneck({
-  maxConcurrent: 3,
+  maxConcurrent: 1,
   minTime: 333
 });
 const limitedFetch = limiter.wrap(fetch);
 
 var cached = {};
+
+function getTermsDetails(courseId){
+  // get terms for course
+  return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/courseTerms/UVA01/"+courseId+"/1", {timeout:0})
+    .then( res => res.text()
+      .then( body => {
+        const $$ = cheerio.load(body);
+        const pageTitle = $$('.page-title').text();
+        if (pageTitle == "Course Sections") {
+          return [{id:res.url.replace(/.*\/(.*)/,"$1")}];
+        } else {
+          const terms = $$("section.main > section > a").get();
+          return terms.map(elem=>{
+              return {
+                id: $$(elem).attr('href').replace(/^.*\//,""),
+                title: $$(elem).find('div.section-body').first().text()
+              };
+          });
+        }
+      })
+    );
+}
 
 function getCourseDetails($,career,subjectIndex,subject,id){
   var course = {
@@ -25,29 +47,10 @@ function getCourseDetails($,career,subjectIndex,subject,id){
       .each((i,elem)=>{
         course[camelCase( $(elem).find('div.pull-left > div.strong').first().text() )] = $(elem).find('div.pull-right > div').first().text();
       });
-  // get terms for course
-  return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/courseTerms/UVA01/"+id+"/1", {timeout:0})
-    .then( res => res.text()
-      .then( body => {
-        const $$ = cheerio.load(body);
-        const pageTitle = $$('.page-title').text();
-        if (pageTitle == "Course Sections") {
-          course.terms = [{id:res.url.replace(/.*\/(.*)/,"$1")}];
-        } else {
-          var terms = $$("section.main > section > a");
-          if (terms.length > 0) {
-            course.terms = [];
-            terms.each((i,elem)=>{
-              course.terms.push({
-                id: $$(elem).attr('href').replace(/^.*\//,""),
-                title: $$(elem).find('div.section-body').first().text()
-              });
-            });
-          }
-        }
-        return [course];
-      })
-    );
+  return getTermsDetails(id).then(terms=>{
+    course.terms = terms;
+    return [course];
+  });
 }
 
 module.exports = {
@@ -175,34 +178,58 @@ module.exports = {
     }
   },
 
+  getTerms: function(courseId, career, subjectIndex, subject){
+    if (courseId) {
+      console.log('**** fetch terms for course '+courseId+' '+career+" "+subjectIndex+' '+subject)
+      return getTermsDetails(courseId);
+    } else {
+      return this.getCourses(career,subjectIndex,subject).then( courses=>{
+        return Promise.all( courses.map(course=>{ return this.getTerms(course.id) }) )
+          .then( term=>{
+            var terms = [].concat.apply([], term);
+            return terms;
+          } );
+      } )
+    }
+  },
+
   getSections: function(termId, courseId, career, subjectIndex, subject){
-    if (termId) {
+    if (termId && courseId) {
       console.log('**** fetch sections for term:'+termId+' and course:'+courseId);
       return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/coursesections/UVA01/"+courseId+"/1/"+termId, {timeout:0})
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
-//          const pageTitle = $('.page-title').text();
-//          return (pageTitle == "Course Details")?
-//            getCourseDetails($,career,subjectIndex,subject,res.url.replace(/.*\//,"") ):
-//            $('section.main > section > div > a')
-//              .map( (i, elem)=>{
-//                return {
-//                  career: career,
-//                  subjectIndex: subjectIndex,
-//                  subject: subject,
-//                  id: $(elem).attr('href').replace(/.+\/(.+)\/.+\/.*/,"$1"),
-//                  title: $(elem).find('div.strong.section-body').last().text(),
-//                  link: $(elem).attr('href')
-//                };
-//              } ).get();
+          return $('div#course-sections > a')
+              .map( (i, elem)=>{
+                return {
+                    termId: termId,
+                    courseId: courseId,
+                    career, career,
+                    subjectIndex, subjectIndex,
+                    subject, subject,
+                    id: $(elem).attr('href').replace(/.+\//,""),
+                    title: $(elem).find('div.strong.section-body').last().text().replace(/\s+\(.+\)$/,""),
+                    link: $(elem).attr('href')
+                };
+              } ).get();
         } )
     } else {
-      return Promise.resolve([]);
-//      return this.getCourses(career,subjectIndex,subject).then( courses=>{
-//        return Promise.all( courses.map(course=>{ return this.getCourse(course.id,course.career,course.subjectIndex,course.subject) }) )
-//          .then( course=>{ return [].concat.apply([], course) } );
-//      } );
+      return this.getCourse(courseId, career, subjectIndex, subject)
+        .then( courses=>{
+          // return array of all course term combos
+          var combos = [];
+          courses.forEach( course=>{
+            course.terms.forEach( term=>{
+              combos.push([term.id,course.id]);
+            });
+          } )
+          return combos;
+        } )
+        .then( combos=>{
+          return Promise.all( combos.map(combo=>{ return this.getSections(combo[0], combo[1], career, subjectIndex, subject) }) )
+            .then( session=>{ return [].concat.apply([], session) } );
+        } );
     }
   }
 
