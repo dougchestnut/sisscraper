@@ -178,6 +178,7 @@ module.exports = {
     }
   },
 
+  // getCourse already gets terms so this isn't that usefull
   getTerms: function(courseId, career, subjectIndex, subject){
     if (courseId) {
       console.log('**** fetch terms for course '+courseId+' '+career+" "+subjectIndex+' '+subject)
@@ -228,6 +229,39 @@ module.exports = {
         } )
         .then( combos=>{
           return Promise.all( combos.map(combo=>{ return this.getSections(combo[0], combo[1], career, subjectIndex, subject) }) )
+            .then( session=>{ return [].concat.apply([], session) } );
+        } );
+    }
+  },
+
+  getSection: function(sectionId, termId, courseId, career, subjectIndex, subject){
+    if (sectionId && termId) {
+      console.log('**** fetch section details for section:'+sectionId+' term:'+termId);
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/classsection/UVA01/"+termId+"/"+sectionId, {timeout:0})
+        .then( res => res.text() )
+        .then( body => {
+          const $ = cheerio.load(body);
+          var section = {
+            id: sectionId,
+            termId: termId,
+            courseId: courseId,
+            career: career,
+            subjectIndex: subjectIndex,
+            subject: subject,
+            number: $("h1.page-title").last().text().replace(/.+\- /,""),
+            course: $("h1.page-title").last().text().replace(/ -.+/,""),
+            title: $("div.primary-head").first().text().replace(/\s+(.+?) \s+/s, "$1"),
+          };
+          $('body > section > section > div.section-content.clearfix')
+              .each((i,elem)=>{
+                section[camelCase( $(elem).find('div.pull-left > div.strong').first().text() )] = $(elem).find('div.pull-right > div').first().text();
+              });
+          return [section];
+        } )
+    } else {
+      return this.getSections(termId, courseId, career, subjectIndex, subject)
+        .then( sections=>{
+          return Promise.all( sections.map(section=>{ return this.getSection(section.id, section.termId, courseId, career, subjectIndex, subject) }) )
             .then( session=>{ return [].concat.apply([], session) } );
         } );
     }
