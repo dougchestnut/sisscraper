@@ -5,8 +5,8 @@ const Bottleneck = require("bottleneck");
 
 // Setup a Bottleneck for limiting fetches to SIS Mobile (be kind)
 const limiter = new Bottleneck({
-  maxConcurrent: 1,
-  minTime: 333
+  maxConcurrent: 2,
+  minTime: 666
 });
 const limitedFetch = limiter.wrap(fetch);
 
