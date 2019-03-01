@@ -55,15 +55,15 @@ function getCourseDetails($,career,subjectIndex,subject,id){
 
 module.exports = {
   getCareers: function(){
-    if (cached)
-      return Promise.resolve(cached);
+    if (cached.careers)
+      return Promise.resolve(cached.careers);
     else {
       console.log('* fetch careers')
       return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalogCareers", {timeout:0})
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
-          cached = $('body > section > section > a')
+          cached.careers = $('body > section > section > a')
             .map( (i, elem)=>{
               var cars = {
                 link: $(elem).attr('href'),
@@ -72,29 +72,35 @@ module.exports = {
               cars.id = cars.link.replace(/.*\//,'');
               return cars;
             } ).get();
-          return cached;
+          return cached.careers;
         } );
     }
   },
 
   getSubjectIndex: function(careerId){
     if (careerId) {
-      console.log('** fetch subject index '+careerId)
-      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0})
-        .then( res => res.text() )
-        .then( body => {
-          const $ = cheerio.load(body);
-          return $('body > section > section > div[id] > a')
-            .map( (i, elem)=>{
-              var sub = {
-                link: $(elem).attr('href'),
-                career: careerId,
-                id: $(elem).find("div > div[class='pull-left'] > div").text(),
-                subjectRangeSnip: $(elem).find("div > div[class='pull-right'] > div").text()
-              };
-              return sub;
-            } ).get();
-        } );
+      if (cached.subjectIndex && cached.subjectIndex[careerId])
+        return Promise.resolve(cached.subjectIndex[careerId]);
+      else {
+        console.log('** fetch subject index '+careerId)
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0})
+          .then( res => res.text() )
+          .then( body => {
+            const $ = cheerio.load(body);
+            if (!cached.subjectIndex) cached.subjectIndex = {};
+            cached.subjectIndex[careerId] = $('body > section > section > div[id] > a')
+              .map( (i, elem)=>{
+                var sub = {
+                  link: $(elem).attr('href'),
+                  career: careerId,
+                  id: $(elem).find("div > div[class='pull-left'] > div").text(),
+                  subjectRangeSnip: $(elem).find("div > div[class='pull-right'] > div").text()
+                };
+                return sub;
+              } ).get();
+            return cached.subjectIndex[careerId];
+          } );
+      }
     } else {
       return this.getCareers().then( careers=>{
         return Promise.all( careers.map(career=>{ return this.getSubjectIndex(career.id) }) )
