@@ -8,7 +8,13 @@ const limiter = new Bottleneck({
   maxConcurrent: 2,
   minTime: 666
 });
-const limitedFetch = limiter.wrap(fetch);
+
+const fetch_retry = (url, options, n) => fetch(url, options).catch(function(error) {
+    if (n === 1) throw error;
+    return fetch_retry(url, options, n - 1);
+});
+
+const limitedFetch = limiter.wrap(fetch_retry);
 
 var cached = {};
 
@@ -19,7 +25,7 @@ function getTermsDetails(courseId){
     return Promise.resolve(cached.termsDetails[courseId]);
   } else {
     if (!cached.termsDetails) cached.termsDetails = {};
-    return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/courseTerms/UVA01/"+courseId+"/1", {timeout:0})
+    return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/courseTerms/UVA01/"+courseId+"/1", {timeout:0}, 10)
       .then( res => res.text()
         .then( body => {
           const $$ = cheerio.load(body);
@@ -63,7 +69,7 @@ function getCourseDetails($,career,subjectIndex,subject,id){
 module.exports = {
 
   importHistoryFromLou: function(termId, courseId){
-    return limitedFetch("https://rabi.phys.virginia.edu/mySIS/CS2/enrollmentData.php?Semester="+termId+"&ClassNumber="+courseId,{timeout:0})
+    return limitedFetch("https://rabi.phys.virginia.edu/mySIS/CS2/enrollmentData.php?Semester="+termId+"&ClassNumber="+courseId,{timeout:0}, 10)
       .then( res => res.json() )
   },
 
@@ -73,7 +79,7 @@ module.exports = {
       return Promise.resolve(cached.careers);
     } else {
       console.log('* fetch careers')
-      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalogCareers", {timeout:0})
+      return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalogCareers", {timeout:0}, 10)
         .then( res => res.text() )
         .then( body => {
           const $ = cheerio.load(body);
@@ -98,7 +104,7 @@ module.exports = {
         return Promise.resolve(cached.subjectIndex[careerId]);
       } else {
         console.log('** fetch subject index '+careerId)
-        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0})
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCatalog/UVA01/"+careerId, {timeout:0}, 10)
           .then( res => res.text() )
           .then( body => {
             const $ = cheerio.load(body);
@@ -132,7 +138,7 @@ module.exports = {
         } else {
           if (!cached.subjects) cached.subjects = {};
           console.log('*** fetch subjects '+career+' '+subjectIndex)
-          return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listSubjectsByLetter/UVA01/"+subjectIndex+"/"+career, {timeout:0})
+          return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listSubjectsByLetter/UVA01/"+subjectIndex+"/"+career, {timeout:0}, 10)
             .then( res => res.text() )
             .then( body => {
               const $ = cheerio.load(body);
@@ -166,7 +172,7 @@ module.exports = {
       } else {
         if (!cached.courses) cached.courses = {};
         console.log('**** fetch courses '+career+' '+subjectIndex+' '+subject)
-        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCoursesBySubject/UVA01/"+subjectIndex+"/"+subject+"/"+career, {timeout:0})
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/listCoursesBySubject/UVA01/"+subjectIndex+"/"+subject+"/"+career, {timeout:0}, 10)
           .then( res => res.text()
             .then( body => {
               const $ = cheerio.load(body);
@@ -180,7 +186,7 @@ module.exports = {
                       subjectIndex: subjectIndex,
                       subject: (Array.isArray(subject))?subject:[subject],
                       id: $(elem).attr('href').replace(/.+\/(.+)\/.+\/.*/,"$1"),
-                      course: $(elem).find('div.strong.section-body').last().text(),
+                      course: [$(elem).find('div.strong.section-body').last().text()],
                       link: $(elem).attr('href')
                     };
                   } ).get();
@@ -204,7 +210,7 @@ module.exports = {
       } else {
         if (!cached.course) cached.course = {};
         console.log('**** fetch course '+courseId+' '+career+" "+subjectIndex+' '+subject)
-        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/showCourse/UVA01/"+courseId, {timeout:0})
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/showCourse/UVA01/"+courseId, {timeout:0}, 10)
           .then( res => res.text() )
           .then( body => {
             const $ = cheerio.load(body);
@@ -244,7 +250,7 @@ module.exports = {
       } else {
         if (!cached.sections) cached.sections = {};
         console.log('**** fetch sections for term:'+termId+' and course:'+courseId);
-        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/coursesections/UVA01/"+courseId+"/1/"+termId, {timeout:0})
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/coursesections/UVA01/"+courseId+"/1/"+termId, {timeout:0}, 10)
           .then( res => res.text() )
           .then( body => {
             const $ = cheerio.load(body);
@@ -286,13 +292,14 @@ module.exports = {
 
   getSection: function(sectionId, termId, courseId, career, subjectIndex, subject){
     if (sectionId && termId) {
+      if (sectionId.indexOf('-')>-1) sectionId = sectionId.replace(/(.+)\-.*/,"$1");
       if (cached.section && cached.section[sectionId+'-'+termId+'-'+courseId+'-'+career+'-'+subjectIndex+'-'+subject]) {
         console.log('hit cache for section!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
         return Promise.resolve(cached.section[sectionId+'-'+termId+'-'+courseId+'-'+career+'-'+subjectIndex+'-'+subject]);
       } else {
         if (!cached.section) cached.section = {};
         console.log('**** fetch section details for section:'+sectionId+' term:'+termId);
-        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/classsection/UVA01/"+termId+"/"+sectionId, {timeout:0})
+        return limitedFetch("https://msisuva.admin.virginia.edu/app/catalog/classsection/UVA01/"+termId+"/"+sectionId, {timeout:0}, 10)
           .then( res => res.text() )
           .then( body => {
             const $ = cheerio.load(body);
