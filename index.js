@@ -5,8 +5,8 @@ const Bottleneck = require("bottleneck");
 
 // Setup a Bottleneck for limiting fetches to SIS Mobile (be kind)
 const limiter = new Bottleneck({
-  maxConcurrent: 2,
-  minTime: 666
+  maxConcurrent: 5,
+  minTime: 333
 });
 
 const fetch_retry = (url, options, n) => fetch(url, options).catch(function(error) {
@@ -263,7 +263,7 @@ module.exports = {
                       subjectIndex: subjectIndex,
                       subject: (Array.isArray(subject))?subject:[subject],
                       secitionId: $(elem).attr('href').replace(/.+\//,""),
-                      title: $(elem).find('div.strong.section-body').last().text().replace(/\s+\(.+\)$/,""),
+                      course: $(elem).find('div.strong.section-body').last().text().replace(/\s+\(.+\)$/,""),
                       link: $(elem).attr('href'),
                       id: $(elem).attr('href').replace(/.+\//,"")+"-"+termId
                   };
